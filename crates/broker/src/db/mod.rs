@@ -14,7 +14,7 @@
 
 use std::{default::Default, str::FromStr, sync::Arc};
 
-use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, B256, U256};
+use alloy::primitives::{ruint::ParseError as RuintParseErr, Bytes, U256};
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{
@@ -135,7 +135,7 @@ pub trait BrokerDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError>;
+    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
     async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
 
@@ -270,15 +270,15 @@ impl SqliteDb {
     /// Returns true if inserted/updated, false if ignored due to existing non-skipped order.
     async fn insert_accepted_order(&self, order: &Order) -> Result<(), DbError> {
         let result = sqlx::query(
-            r#"INSERT INTO orders (id, data) VALUES ($1, $2) 
-               ON CONFLICT(id) DO UPDATE SET 
-                   data = excluded.data 
+            r#"INSERT INTO orders (id, data) VALUES ($1, $2)
+               ON CONFLICT(id) DO UPDATE SET
+                   data = excluded.data
                WHERE orders.data->>'status' = 'Skipped'"#,
         )
-        .bind(order.id())
-        .bind(sqlx::types::Json(&order))
-        .execute(&self.pool)
-        .await?;
+            .bind(order.id())
+            .bind(sqlx::types::Json(&order))
+            .execute(&self.pool)
+            .await?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::DuplicateOrderId(order.id()));
@@ -363,14 +363,14 @@ impl BrokerDb for SqliteDb {
     async fn get_submission_order(
         &self,
         id: &str,
-    ) -> Result<(ProofRequest, Bytes, String, B256, U256, FulfillmentType), DbError> {
+    ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError> {
         let order = self.get_order(id).await?;
         if let Some(order) = order {
             Ok((
                 order.request.clone(),
                 order.client_sig.clone(),
                 order.proof_id.ok_or(DbError::MissingElm("proof_id"))?,
-                order.request.requirements.imageId,
+                order.image_id.ok_or(DbError::MissingElm("image_id"))?,
                 order.lock_price.ok_or(DbError::MissingElm("lock_price"))?,
                 order.fulfillment_type,
             ))
@@ -403,12 +403,12 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $4"#,
         )
-        .bind(OrderStatus::Failed)
-        .bind(Utc::now().timestamp())
-        .bind(failure_str)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+            .bind(OrderStatus::Failed)
+            .bind(Utc::now().timestamp())
+            .bind(failure_str)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -429,11 +429,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(OrderStatus::Done)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+            .bind(OrderStatus::Done)
+            .bind(Utc::now().timestamp())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -447,14 +447,14 @@ impl BrokerDb for SqliteDb {
         let orders: Vec<DbOrder> = sqlx::query_as(
             "SELECT * FROM orders WHERE data->>'status' IN ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(OrderStatus::PendingProving)
-        .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .bind(OrderStatus::SkipAggregation)
-        .bind(OrderStatus::PendingSubmission)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(OrderStatus::PendingProving)
+            .bind(OrderStatus::Proving)
+            .bind(OrderStatus::PendingAgg)
+            .bind(OrderStatus::Aggregating)
+            .bind(OrderStatus::SkipAggregation)
+            .bind(OrderStatus::PendingSubmission)
+            .fetch_all(&self.pool)
+            .await?;
 
         // Break if any order-id's are invalid and raise
         orders.into_iter().map(|elm| Ok(elm.data)).collect()
@@ -471,14 +471,14 @@ impl BrokerDb for SqliteDb {
                 WHERE data->>'status' IN ($1, $2, $3, $4, $5)
                 AND data->>'expire_timestamp' IS NOT NULL AND data->>'expire_timestamp' < $6"#,
         )
-        .bind(OrderStatus::PendingProving)
-        .bind(OrderStatus::Proving)
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::SkipAggregation)
-        .bind(OrderStatus::PendingSubmission)
-        .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(OrderStatus::PendingProving)
+            .bind(OrderStatus::Proving)
+            .bind(OrderStatus::PendingAgg)
+            .bind(OrderStatus::SkipAggregation)
+            .bind(OrderStatus::PendingSubmission)
+            .bind(Utc::now().timestamp().saturating_sub(grace_period_secs))
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(orders.into_iter().map(|db_order| db_order.data).collect())
     }
@@ -497,11 +497,11 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::Proving)
-        .bind(Utc::now().timestamp())
-        .bind(OrderStatus::PendingProving)
-        .fetch_optional(&self.pool)
-        .await?;
+            .bind(OrderStatus::Proving)
+            .bind(Utc::now().timestamp())
+            .bind(OrderStatus::PendingProving)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let Some(order) = elm else {
             return Ok(None);
@@ -533,11 +533,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(proof_id)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+            .bind(proof_id)
+            .bind(Utc::now().timestamp())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -593,11 +593,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(compressed_proof_id)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+            .bind(compressed_proof_id)
+            .bind(Utc::now().timestamp())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -618,11 +618,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(status)
-        .bind(Utc::now().timestamp())
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+            .bind(status)
+            .bind(Utc::now().timestamp())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
@@ -645,12 +645,12 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::Aggregating)
-        .bind(Utc::now().timestamp())
-        .bind(OrderStatus::PendingAgg)
-        .bind(OrderStatus::Aggregating)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(OrderStatus::Aggregating)
+            .bind(Utc::now().timestamp())
+            .bind(OrderStatus::PendingAgg)
+            .bind(OrderStatus::Aggregating)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
@@ -689,11 +689,11 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(OrderStatus::SkipAggregation)
-        .bind(Utc::now().timestamp())
-        .bind(OrderStatus::SkipAggregation)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(OrderStatus::SkipAggregation)
+            .bind(Utc::now().timestamp())
+            .bind(OrderStatus::SkipAggregation)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut agg_orders = vec![];
         for order in orders.into_iter() {
@@ -732,11 +732,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(BatchStatus::Complete)
-        .bind(g16_proof_id)
-        .bind(batch_id as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(BatchStatus::Complete)
+            .bind(g16_proof_id)
+            .bind(batch_id as i64)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -760,10 +760,10 @@ impl BrokerDb for SqliteDb {
             RETURNING *
             "#,
         )
-        .bind(BatchStatus::PendingSubmission)
-        .bind(BatchStatus::Complete)
-        .fetch_optional(&self.pool)
-        .await?;
+            .bind(BatchStatus::PendingSubmission)
+            .bind(BatchStatus::Complete)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let Some(db_batch) = elm else {
             return Ok(None);
@@ -782,10 +782,10 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $2"#,
         )
-        .bind(BatchStatus::Submitted)
-        .bind(batch_id as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(BatchStatus::Submitted)
+            .bind(batch_id as i64)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -807,11 +807,11 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $3"#,
         )
-        .bind(BatchStatus::Failed)
-        .bind(err)
-        .bind(batch_id as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(BatchStatus::Failed)
+            .bind(err)
+            .bind(batch_id as i64)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -889,12 +889,12 @@ impl BrokerDb for SqliteDb {
             WHERE
                 id = $4"#,
         )
-        .bind(new_deadline)
-        .bind(format!("0x{new_fees:x}"))
-        .bind(sqlx::types::Json(aggreagtion_state))
-        .bind(batch_id as i64)
-        .execute(&mut *txn)
-        .await?;
+            .bind(new_deadline)
+            .bind(format!("0x{new_fees:x}"))
+            .bind(sqlx::types::Json(aggreagtion_state))
+            .bind(batch_id as i64)
+            .execute(&mut *txn)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -910,10 +910,10 @@ impl BrokerDb for SqliteDb {
                 WHERE
                     id = $2"#,
             )
-            .bind(order.order_id.clone())
-            .bind(batch_id as i64)
-            .execute(&mut *txn)
-            .await?;
+                .bind(order.order_id.clone())
+                .bind(batch_id as i64)
+                .execute(&mut *txn)
+                .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::BatchNotFound(batch_id));
@@ -929,11 +929,11 @@ impl BrokerDb for SqliteDb {
                 WHERE
                     id = $3"#,
             )
-            .bind(OrderStatus::PendingSubmission)
-            .bind(Utc::now().timestamp())
-            .bind(order.order_id.clone())
-            .execute(&mut *txn)
-            .await?;
+                .bind(OrderStatus::PendingSubmission)
+                .bind(Utc::now().timestamp())
+                .bind(order.order_id.clone())
+                .execute(&mut *txn)
+                .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::OrderNotFound(order.order_id.clone()));
@@ -952,11 +952,11 @@ impl BrokerDb for SqliteDb {
                 WHERE
                     id = $3"#,
             )
-            .bind(BatchStatus::PendingCompression)
-            .bind(sqlx::types::Json(assessor_proof_id))
-            .bind(batch_id as i64)
-            .execute(&mut *txn)
-            .await?;
+                .bind(BatchStatus::PendingCompression)
+                .bind(sqlx::types::Json(assessor_proof_id))
+                .bind(batch_id as i64)
+                .execute(&mut *txn)
+                .await?;
 
             if res.rows_affected() == 0 {
                 return Err(DbError::BatchNotFound(batch_id));
@@ -992,10 +992,10 @@ impl BrokerDb for SqliteDb {
             r#"
             INSERT INTO fulfilled_requests (id, block_number) VALUES ($1, $2)"#,
         )
-        .bind(format!("0x{request_id:x}"))
-        .bind(block_number as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(format!("0x{request_id:x}"))
+            .bind(block_number as i64)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -1020,11 +1020,11 @@ impl BrokerDb for SqliteDb {
         sqlx::query(
             r#"INSERT INTO locked_requests (id, locker, block_number) VALUES ($1, $2, $3)"#,
         )
-        .bind(format!("0x{request_id:x}"))
-        .bind(locker)
-        .bind(block_number as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(format!("0x{request_id:x}"))
+            .bind(locker)
+            .bind(block_number as i64)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -1076,10 +1076,10 @@ impl BrokerDb for SqliteDb {
                 WHERE
                     id = $2"#,
         )
-        .bind(status)
-        .bind(batch_id as i64)
-        .execute(&self.pool)
-        .await?;
+            .bind(status)
+            .bind(batch_id as i64)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() == 0 {
             return Err(DbError::BatchNotFound(batch_id));
@@ -1095,40 +1095,36 @@ mod tests {
     use crate::ProofRequest;
     use alloy::primitives::{Address, Bytes, U256};
     use boundless_market::contracts::{
-        Offer, Predicate, PredicateType, RequestId, RequestInput, RequestInputType, Requirements,
+        Offer, Predicate, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use risc0_aggregation::GuestState;
     use risc0_zkvm::sha::Digest;
     use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
-        OrderRequest::new(
+        let mut request = OrderRequest::new(
             ProofRequest::new(
                 RequestId::new(Address::ZERO, 1),
-                Requirements::new(
-                    Digest::ZERO,
-                    Predicate {
-                        predicateType: PredicateType::PrefixMatch,
-                        data: Default::default(),
-                    },
-                ),
+                Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
                 "http://risczero.com",
                 RequestInput { inputType: RequestInputType::Inline, data: "".into() },
                 Offer {
                     minPrice: U256::from(1),
                     maxPrice: U256::from(2),
-                    biddingStart: 0,
+                    rampUpStart: 0,
                     timeout: 100,
                     lockTimeout: 100,
                     rampUpPeriod: 1,
-                    lockStake: U256::from(0),
+                    lockCollateral: U256::from(0),
                 },
             ),
             Bytes::new(),
             FulfillmentType::LockAndFulfill,
             Address::ZERO,
             1,
-        )
+        );
+        request.image_id = Some(Digest::ZERO.to_string());
+        request
     }
 
     fn create_order() -> Order {
@@ -1189,12 +1185,12 @@ mod tests {
         order.lock_price = Some(U256::from(10));
         db.add_order(&order).await.unwrap();
 
-        let submit_order: (ProofRequest, Bytes, String, B256, U256, FulfillmentType) =
+        let submit_order: (ProofRequest, Bytes, String, String, U256, FulfillmentType) =
             db.get_submission_order(&order.id()).await.unwrap();
         assert_eq!(submit_order.0, order.request);
         assert_eq!(submit_order.1, order.client_sig);
         assert_eq!(submit_order.2, order.proof_id.unwrap());
-        assert_eq!(submit_order.3, order.request.requirements.imageId);
+        assert_eq!(submit_order.3, order.image_id.unwrap());
         assert_eq!(submit_order.4, order.lock_price.unwrap());
         assert_eq!(submit_order.5, order.fulfillment_type);
     }
