@@ -1,0 +1,75 @@
+[market]
+mcycle_price = "0.000000000007"
+mcycle_price_stake_token = "0.0001"
+peak_prove_khz = 2400
+max_mcycle_limit = 84400
+max_journal_bytes = 1000000
+min_deadline = 900
+lookback_blocks = 300
+max_stake = "30"
+max_file_size = 3_000_000_000
+max_concurrent_proofs = 1
+max_concurrent_preflights = 2  # Double the concurrency to handle more orders
+max_critical_task_retries = 10
+lockin_priority_gas = 250000000
+balance_warn_threshold = "0.015"
+balance_error_threshold = "0.01"
+stake_balance_warn_threshold = "4"
+stake_balance_error_threshold = "3"
+
+# A100 LATITUDE 8X FAIL RECOVER
+# NIZAMLESS PARAMETRELERI
+reaper_grace_period_secs = 432000
+reaper_interval_secs = 300
+min_lock_out_time = 23
+lock_delay_ms = 0
+prove_adress = "0x14d997448f913f697778cdcfb175b256b3f8b1fd120e5137778795e38de95bb6"
+block_number = 35322492
+my_rpc_url = "http://72.46.85.77:8545"
+allow_requestor_addresses = [
+	"0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+	"0x734df7809c4ef94da037449c287166d114503198",
+	"0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16",
+	"0x2546c553d857d20658ece248f7c7d0861a240681",
+	"0xf353bda16a83399c11e09615ee7ac326a5a08ccf",
+	"0x89f12aba0bcda3e708b1129eb2557b96f57b0de6",
+	"0xc73c222d7d39778bf9212f23a8f4356ff7c1e77f",
+	"0xf353bda16a83399c11e09615ee7ac326a5a08ccf",
+]
+# NIZAMLESS PARAMETRELERI BITIS
+
+# If enabled, the order will be preflighted without constraints.
+priority_requestor_addresses = [
+	"0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db0",
+	"0x734df7809c4ef94da037449c287166d114503198",
+	"0x2f08f5d80dEB0CECCb0f4eF3BaB46451a6C47E16",
+	"0x2546c553d857d20658ece248f7c7d0861a240681",
+	"0xf353bda16a83399c11e09615ee7ac326a5a08ccf",
+	"0x89f12aba0bcda3e708b1129eb2557b96f57b0de6",
+	"0xc73c222d7d39778bf9212f23a8f4356ff7c1e77f",
+	"0xf353bda16a83399c11e09615ee7ac326a5a08ccf",
+]
+deny_requestor_addresses = [
+	"0xc559d9bef7df0076f71a42ea58723f429652b789",
+	"0x2693946791da99da78ac441aba6d5ce2bccd96d3",
+	"0xc73c222d7d39778bf9212f23a8f4356ff7c1e77f",
+	"0x3ee7d9175ec8bb9e16e8fd3abdef5a354b247528",
+]
+
+[prover]
+#bonsai_r0_zkvm_ver = "2.1.0"
+status_poll_retry_count = 3
+status_poll_ms = 1000
+req_retry_count = 3
+req_retry_sleep_ms = 500
+proof_retry_count = 8
+proof_retry_sleep_ms = 5000
+
+[batcher]
+batch_max_time = 1000
+min_batch_size = 1
+block_deadline_buffer_secs = 180
+txn_timeout = 240
+single_txn_fulfill = true
+withdraw = false
+max_submission_attempts = 10
